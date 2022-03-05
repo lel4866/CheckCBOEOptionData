@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net6.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="LetsBeRationalLib">
+      <HintPath>..\LetsBeRationalLib.cs\LetsBeRationalLib\bin\Release\net6.0\LetsBeRationalLib.dll</HintPath>
+    </Reference>
+    <Reference Include="ReadFredTreasuryRates">
+      <HintPath>..\ReadFredTreasuryRates.cs\ReadFredTreasuryRates\bin\Release\net6.0\ReadFredTreasuryRates.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>
