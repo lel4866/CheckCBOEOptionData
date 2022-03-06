@@ -4,31 +4,23 @@
 
 #define ONLY25STRIKES
 
-using System;
-using System.Collections.Generic;
-using System.IO;
 using System.IO.Compression;
-using System.Threading.Tasks;
 using LetsBeRationalLib;
-using System.Globalization;
 using System.Diagnostics;
 using ReadFredTreasuryRates;
-using System.Linq;
-using System.Data.SqlClient;
 //using MySql.Data.MySqlClient;
 
 namespace LoadOptionDataFromCBOEData
 {
-    using ExpirationDate = DateTime;
-    using Day = DateTime;
-    using Time = DateTime;
-    using System.Net.Http;
+    using ExpirationDate = DateOnly;
+    using Strike = Int16;
     using System.Text;
+    using System.Collections.Concurrent;
 
     class OptionData
     {
         internal DateTime QuoteDateTime;
-        internal DateTime Expiration;
+        internal DateOnly Expiration;
         internal int Strike;
         internal LetsBeRational.OptionType OptionType;
         internal string Root = "SPX";
@@ -83,12 +75,11 @@ namespace LoadOptionDataFromCBOEData
         const int maxStrike = 10000;
         const int maxDTE = 200; // for saving data
 
+        ConcurrentDictionary<(LetsBeRational.OptionType, string root, ExpirationDate, int strike, DateOnly), SortedList<TimeOnly, OptionData>> mainDict = new();
+
         const string DataDir = @"C:\Users\lel48\CBOEDataShop\SPX";
         const string expectedHeader = "underlying_symbol,quote_datetime,root,expiration,strike,option_type,open,high,low,close,trade_volume,bid_size,bid,ask_size,ask,underlying_bid,underlying_ask,implied_underlying_price,active_underlying_price,implied_volatility,delta,gamma,theta,vega,rho,open_interest";
         readonly StreamWriter errorLog = new(Path.Combine(DataDir, "error_log.txt"));
-        //const string connectionString = @"Data Source=DESKTOP-81ERLT6; Initial Catalog=CBOEOptionData; Integrated Security=SSPI;"; // Sql Server
-        //const string connectionString = @"Server=127.0.0.1;Database=cboeoptiondata;Uid=root;Pwd=11331ca;"; // MySQL/MariaDB
-        const string connectionString = "Host=localhost:5432;Username=postgres;Password=11331ca;Database=CBOEOptionData"; // Postgres
 
         static readonly DateTime earliestDate = new(2013, 1, 1);
         readonly FredRateReader rate_reader;
@@ -130,20 +121,6 @@ namespace LoadOptionDataFromCBOEData
 
         void Run()
         {
-#if false // for debug run single query
-            try
-            {
-            var connString = "Host=localhost:5432;Username=postgres;Password=11331ca;Database=CBOEOptionData";
-
-            using var conn = new NpgsqlConnection(connString);
-            conn.Open();
-            }
-            catch (Npgsql.NpgsqlException ex)
-            {
-                string xxx = ex.Message;
-            }
-            int yyy = 1;
-#endif
             // CBOEDataShop 15 minute data (900sec); a separate zip file for each day, so, if programmed correctly, we can read each day in parallel
             string[] zipFileNameArray = Directory.GetFiles(DataDir, "UnderlyingOptionsIntervals_900sec_calcs_oi*.zip", SearchOption.AllDirectories); // filename if you bought greeks
             //string[] zipFileNameArray = Directory.GetFiles(DataDir, "UnderlyingOptionsIntervalsQuotes_900sec*.zip", SearchOption.AllDirectories); // filename if you didn't buy greeks
@@ -161,7 +138,10 @@ namespace LoadOptionDataFromCBOEData
                     Console.WriteLine($"Warning: {zipFileName} contains more than one file ({archive.Entries.Count}). Processing first one: {fileName}");
                 ZipArchiveEntry zip = archive.Entries[0];
                 DateTime zipDate = DateTime.Parse(zipFileName.Substring(zipFileName.Length - 14, 10));
+
+                // the main data structure we are filling in
                 Dictionary<ExpirationDate, List<OptionData>> expirationDictionary = new();
+
                 using (StreamReader reader = new(zip.Open()))
                 {
                     bool validOption;
@@ -254,57 +234,22 @@ namespace LoadOptionDataFromCBOEData
                     }
                 }
 
-                // now write each item in expirationDictionary
+                // now write each item in expirationDictionary into mainDict
                 foreach (List<OptionData> optionList in expirationDictionary.Values)
                 {
                     foreach (OptionData optionData in optionList)
-                        InsertOptionData(optionData);
+                        InsertOptionDataIntoDatabase(optionData);
                 }
-
             });
+
+            // now print out how many days of data we have for each expiration and strike
         }
 
-        static void InsertOptionData(OptionData optionData)
+        void InsertOptionDataIntoDatabase(OptionData optionData)
         {
-            const string separator = ", ";
-            StringBuilder sb = new("INSERT INTO OptionData VALUES (DEFAULT, '", 200); // DEFAULT for Postgres, NULL for MariaDB, MySql
-            //StringBuilder sb = new("INSERT INTO OptionData VALUES ('", 200); // Sql Server
-            sb.Append(optionData.QuoteDateTime.ToString("yyyy-MM-dd HH:mm:ss")); // SqlServer smalldatetime format is YYYY-MM-DD hh:mm:ss
-            sb.Append("', '");
-            sb.Append(optionData.Expiration.ToString("yyyy-MM-dd"));
-            sb.Append("', ");
-            sb.Append(optionData.Strike);
-            sb.Append(separator);
-            sb.Append(optionData.OptionType == LetsBeRational.OptionType.Call ? "'C', '" : "'P', '");
-            sb.Append(optionData.Root);
-            sb.Append("', ");
-            sb.Append(optionData.Underlying.ToString("0.00"));
-            sb.Append(separator);
-            sb.Append(optionData.Bid.ToString("0.00"));
-            sb.Append(separator);
-            sb.Append(optionData.Ask.ToString("0.00"));
-            sb.Append(separator);
-            sb.Append(optionData.ImpliedVolatility.ToString("0.00000"));
-            sb.Append(separator);
-            sb.Append(optionData.Delta.ToString("0.00000"));
-            sb.Append(separator);
-            sb.Append(optionData.Gamma.ToString("0.00000"));
-            sb.Append(separator);
-            sb.Append(optionData.Theta.ToString("0.00000"));
-            sb.Append(separator);
-            sb.Append(optionData.Vega.ToString("0.00000"));
-            sb.Append(separator);
-            sb.Append(optionData.Rho.ToString("0.00000"));
-            sb.Append(separator);
-            sb.Append(optionData.OpenInterest);
-            sb.Append(separator);
-            sb.Append(optionData.RiskFreeRate.ToString("0.00000"));
-            sb.Append(separator);
-            sb.Append(optionData.DividendYield.ToString("0.00000"));
-            sb.Append(");");
-
-            // INSERT INTO dbo.OptionData VALUES ('2014-01-02 09:45:00', '2014-01-31', 1300, 'C', 'SPXW', 1837.73, 531.50, 542.60, 2.37257, 0.63362, 0.00023, 35.74354, 1.44246, 0.49846, 0, 0.16324, 1.94000);
-            string command = sb.ToString();
+            var key = (optionData.OptionType, optionData.Root, optionData.Expiration, optionData.Strike, DateOnly.FromDateTime(optionData.QuoteDateTime));
+            var list = mainDict.GetOrAdd(key, (key) => new SortedList<TimeOnly, OptionData>());
+            list.Add(TimeOnly.FromDateTime(optionData.QuoteDateTime), optionData);
         }
 
         bool ParseOption(int maxDTE, string line, OptionData option, DateTime zipDate, string fileName, int linenum)
@@ -363,10 +308,9 @@ namespace LoadOptionDataFromCBOEData
                 return LogError($"*Error*: underlying_bid is less than 500 for file {fileName}, line {linenum}, {line}");
 
             //row.Expiration = DateTime.ParseExact(fields[3], "yyyy-mm-dd", provider);
-            option.Expiration = DateTime.Parse(fields[(int)CBOEFields.Expiration]);
+            option.Expiration = DateOnly.Parse(fields[(int)CBOEFields.Expiration]);
 
-            TimeSpan tsDte = option.Expiration.Date - option.QuoteDateTime.Date;
-            int dte = tsDte.Days;
+            int dte = option.Expiration.DayNumber - DateOnly.FromDateTime(option.QuoteDateTime).DayNumber;
             if (dte < 0)
                 return LogError($"*Error*: quote_datetime is later than expiration for file {fileName}, line {linenum}, {line}");
 
@@ -415,7 +359,7 @@ namespace LoadOptionDataFromCBOEData
             double t = dteFraction / 365.0; // days to Expiration / days in year
             double s = option.Underlying; // underlying SPX price
             double K = (double)option.Strike; // Strike price
-            double q = option.DividendYield = 0.01f * dividend_reader.DividendYield(option.Expiration); // 1.29% Oct-31-2021
+            double q = option.DividendYield = 0.01f * dividend_reader.DividendYield(option.Expiration.ToDateTime(new TimeOnly())); // 1.29% Oct-31-2021
             double r = option.RiskFreeRate = 0.01f * rate_reader.RiskFreeRate(option.QuoteDateTime, dte); // 0.05% SOFR on 11/19/2021
             option.ImpliedVolatility = (float)LetsBeRational.ImpliedVolatility(mid, s, K, t, r, q, option.OptionType);
             if (float.IsInfinity(option.ImpliedVolatility))
