@@ -1,6 +1,5 @@
-﻿// This program loads the SQL Server CBOEOptions Database with data from CBOEDatashop
-// It also computes Greeks for those options (it throws away the greeks from CBOEDataShop
-// It uses my modified version of Jaeckel's Lets Be Rational C++ program to compute option greeks
+﻿// This program checks the dates from data purchased through CBOE Data Shop to make sure they
+// supplied all the data for each expiration and each strike
 
 #define ONLY25STRIKES
 
@@ -10,7 +9,7 @@ using System.Diagnostics;
 using ReadFredTreasuryRates;
 //using MySql.Data.MySqlClient;
 
-namespace LoadOptionDataFromCBOEData
+namespace CheckOptionDataFromCBOEData
 {
     using ExpirationDate = DateOnly;
     using Strike = Int16;
